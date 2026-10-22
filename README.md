@@ -164,7 +164,7 @@ Compare results with AIS (Automatic Identification System) ground truth:
 ## File Structure
 
 ```
-SAR_Ship_Detection_Gemma3_270M.ipynb  # Main notebook
+SAR_Ship_Detection_Gemma4_RAM2.ipynb  # Main notebook
 ├── Authentication (Google Earth Engine)
 ├── Model Loading (Gemma 4 E2B, RAM 2)
 ├── SAR Data Loader (512x512)
