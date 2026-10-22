@@ -9,6 +9,7 @@ Production-ready pipeline for detecting and classifying ships from Synthetic Ape
 ## Key Features
 
 - Direct integration with Google Earth Engine for Sentinel-1 SAR data
+- SAR despeckling + 2× super-resolution with [RAM 2](https://www.blurlabs.ai/ram2/) (Blur Labs)
 - Automated ship detection using threshold-based bright-spot detection
 - AI-powered classification via Gemma 3 270M (270M parameters, 540MB)
 - Memory-optimized for Google Colab free tier
@@ -18,7 +19,7 @@ Production-ready pipeline for detecting and classifying ships from Synthetic Ape
 ## System Architecture
 
 ```
-Sentinel-1 SAR → Denoising → Ship Detection → Feature Extraction → Gemma 3 270M → Classification
+Sentinel-1 SAR → RAM 2 (despeckle + 2× SR) → Ship Detection → Feature Extraction → Gemma 3 270M → Classification
 ```
 
 ## Detected Ship Types
@@ -36,7 +37,12 @@ Sentinel-1 SAR → Denoising → Ship Detection → Feature Extraction → Gemma
 
 ```bash
 pip install earthengine-api opencv-python-headless scikit-image transformers accelerate bitsandbytes
+pip install "blurlabs @ git+https://github.com/BlurLabsAI/blurlabs.git"   # RAM 2
 ```
+
+Gemma 3 and RAM 2 weights are gated on Hugging Face. Request access at
+[google/gemma-3-270m-it](https://huggingface.co/google/gemma-3-270m-it) and
+[blurlabs/ram2](https://huggingface.co/blurlabs/ram2), then set an `HF_TOKEN` secret in Colab.
 
 ## Quick Start
 
@@ -52,7 +58,10 @@ model, tokenizer = load_gemma_model()
 results = analyze_with_gemma(
     lon=103.85,  # Singapore Strait
     lat=1.28,
-    size_km=5
+    size_km=5,
+    use_ram2=True,   # RAM 2 despeckling (falls back to raw image if unavailable)
+    sr_factor=2,     # 1 = despeckle only, 2 = also 2x super-resolution
+    enl=4.4          # speckle looks of Sentinel-1 IW GRD
 )
 
 # Export results
@@ -65,7 +74,14 @@ export_csv(results, 'singapore')
 - Resolution: 512x512 pixels
 - Pixel size: ~10 meters/pixel
 - Coverage: 5x5 km default
-- Preprocessing: Gaussian blur (7x7 kernel)
+- Preprocessing: Gaussian blur (7x7 kernel), or RAM 2 when enabled
+
+**Enhancement (RAM 2):**
+- Model: Blur Labs RAM 2 (Reconstruct Anything Model 2), 359M params, physics-conditioned restoration
+- Despeckling: speckle modelled as multiplicative Gamma noise (`deepinv.physics.GammaNoise(l=ENL)`)
+- Super-resolution: bicubic `Downsampling(factor=2)` operator, ~10 m → ~5 m/pixel (1024x1024 output)
+- Tiled inference (256 px tiles, 32 px overlap) to fit the Colab free tier
+- Detector size limits and pixel size in meters are rescaled automatically
 
 **Detection:**
 - Method: Percentile-based thresholding (99.5th percentile)
@@ -79,7 +95,8 @@ export_csv(results, 'singapore')
 - Confidence: 70-85% depending on feature clarity
 
 **Performance:**
-- Memory usage: <2GB (image + model)
+- Memory usage: <2GB (image + Gemma); RAM 2 adds ~1.5GB of weights
+- RAM 2: a few seconds on GPU, ~1 minute on CPU per 512x512 scene (2x SR)
 - Speed: ~1 second per ship classification
 - GPU: Optional (runs on CPU)
 
@@ -137,6 +154,7 @@ SAR_Ship_Detection_Gemma3_270M.ipynb  # Main notebook
 ├── Authentication (Google Earth Engine)
 ├── Model Loading (Gemma 3 270M)
 ├── SAR Data Loader (512x512)
+├── RAM 2 Enhancement (despeckling + super-resolution)
 ├── Ship Detector (threshold-based)
 ├── Gemma Classifier (feature-based)
 ├── Visualization (3-panel display)
@@ -148,6 +166,10 @@ SAR_Ship_Detection_Gemma3_270M.ipynb  # Main notebook
 - Resolution: 512x512 limits detection of vessels 
 - Small ships may be missed due to threshold settings
 - Weather conditions affect SAR quality
+- RAM 2 is a general-purpose restoration model, not trained specifically on SAR. Check the before/after
+  comparison and tune `enl` (lower = stronger despeckling). It works on the 8-bit, percentile-stretched
+  thumbnail, so very bright targets are clipped before enhancement.
+- RAM 2 is licensed GPL-3.0-only (a commercial license is available from Blur Labs)
 - Classification relies on size-shape heuristics
 
 ## Future Improvements
